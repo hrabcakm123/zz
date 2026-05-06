@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use App\Models\CasLog;
 use Symfony\Component\Process\Process;
 use Symfony\Component\Process\Exception\ProcessFailedException;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Redis;
 
 class CasController extends Controller
 {
@@ -16,12 +18,43 @@ class CasController extends Controller
             return response()->json(['error' => 'No command provided.'], 400);
         }
 
-        $process = new Process(['octave-cli', '--eval', $command]);
+        $sessionToken = $request->cookie('octave_session');
+        $isNewSession = false;
+        if (!$sessionToken) {
+            $sessionToken = (string) Str::uuid();
+            $isNewSession = true;
+        }
+
+        $redisKey = 'octave_session:' . $sessionToken;
+        $workspaceData = Redis::get($redisKey);
+        $loadCmd = '';
+        $tempFile = '';
+
+        if ($workspaceData) {
+            $tempFile = tempnam(sys_get_temp_dir(), 'octave_');
+            file_put_contents($tempFile, $workspaceData);
+            $loadCmd = "load('" . addslashes($tempFile) . "'); ";
+        }
+
+        $octaveCmd = $loadCmd . $command;
+        $process = new Process(['octave-cli', '--eval', $octaveCmd]);
         $process->setTimeout(10);
 
         try {
             $process->mustRun();
             $output = $process->getOutput();
+
+            $saveTempFile = tempnam(sys_get_temp_dir(), 'octave_save_');
+            $saveCmd = $octaveCmd . "; save('" . addslashes($saveTempFile) . "');";
+            $saveProcess = new Process(['octave-cli', '--eval', $saveCmd]);
+            $saveProcess->mustRun();
+
+            if (file_exists($saveTempFile)) {
+                Redis::setex($redisKey, (int) env('WORKSPACE_TTL', 7200), file_get_contents($saveTempFile));
+                unlink($saveTempFile);
+            }
+
+            if ($tempFile && file_exists($tempFile)) unlink($tempFile);
 
             CasLog::create([
                 'timestamp' => now(),
@@ -30,14 +63,13 @@ class CasController extends Controller
                 'error'     => null,
             ]);
 
-            $delayCoefficient = (float) env('DELAY_COEFFICIENT', 0);
-            if ($delayCoefficient > 0) {
-                usleep((int)($delayCoefficient * 1000000));
-            }
+            $delay = (float) env('DELAY_COEFFICIENT', 0);
+            if ($delay > 0) usleep((int)($delay * 1000000));
 
-            return response()->json(['output' => trim($output)]);
+            $response = response()->json(['output' => trim($output)]);
         } catch (ProcessFailedException $e) {
             $errorOutput = $process->getErrorOutput();
+            if ($tempFile && file_exists($tempFile)) unlink($tempFile);
 
             CasLog::create([
                 'timestamp' => now(),
@@ -46,10 +78,14 @@ class CasController extends Controller
                 'error'     => $errorOutput,
             ]);
 
-            return response()->json([
+            $response = response()->json([
                 'error'   => 'Octave execution failed',
                 'details' => $errorOutput,
             ], 500);
         }
+
+        $response->cookie('octave_session', $sessionToken, 120);
+
+        return $response;
     }
 }
