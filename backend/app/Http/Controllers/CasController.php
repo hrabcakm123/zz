@@ -88,4 +88,26 @@ class CasController extends Controller
 
         return $response;
     }
+
+    public function exportLogs()
+    {
+        $logs = CasLog::orderBy('timestamp')->get();
+
+        $csvData = "timestamp,command,status,error\n";
+        foreach ($logs as $log) {
+            $timestamp = $log->timestamp;
+            $command   = '"' . str_replace('"', '""', $log->command) . '"';
+            $status    = $log->status;
+            $error     = '"' . str_replace('"', '""', $log->error ?? '') . '"';
+
+            $csvData .= "{$timestamp},{$command},{$status},{$error}\n";
+        }
+
+        $fileName = 'cas_logs_' . now()->format('Y-m-d_His') . '.csv';
+
+        return response($csvData, 200, [
+            'Content-Type'        => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"{$fileName}\"",
+        ]);
+    }
 }
