@@ -4,27 +4,56 @@ import { Codemirror } from 'vue-codemirror'
 import { StreamLanguage } from '@codemirror/language'
 import { octave } from '@codemirror/legacy-modes/mode/octave'
 
-// Obsah nášho editora (to, čo používateľ napíše)
-const codeCommand = ref('a = 1 + 1\na + 2')
+// Obsah editora
+const codeCommand = ref('a = 1 + 2\nb = 3\nc = a + b')
 
-// Odpoveď z backendu
+// Výstup z backendu
 const consoleOutput = ref('')
 const isExecuting = ref(false)
 
-// Nastavíme syntax priamo na Octave
+// Nastavenie syntaxe Octave
 const extensions = [StreamLanguage.define(octave)]
 
-const executeCommand = () => {
+const executeCommand = async () => {
   isExecuting.value = true
-  
-  // Neskôr tu príde volanie cez AXIOS na tvoj backend:
-  // axios.post('/api/execute', { command: codeCommand.value })
-  
-  // Zatiaľ to len simulujeme (Mocking), kým nemáme napojený backend
-  setTimeout(() => {
-    consoleOutput.value = ">> a = 2\n>> ans = 4\n\n(Simulovaná odpoveď z backendu)"
+  const cmd = codeCommand.value.trim()
+
+  console.log('Odosielam príkaz:', cmd)
+
+  if (!cmd) {
+    consoleOutput.value = 'Chyba: príkaz je prázdny.'
     isExecuting.value = false
-  }, 800)
+    return
+  }
+
+  try {
+    // Token z .env – musí byť definovaný ako VITE_API_TOKEN
+    const token = import.meta.env.VITE_API_TOKEN || 'tajnykluc123'
+    console.log('Používam token:', token)
+
+    const response = await fetch('http://localhost:8000/api/cas/command', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      credentials: 'include', // aby sa odoslali session cookies
+      body: JSON.stringify({ command: cmd })
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.details || data.error || `HTTP ${response.status}`)
+    }
+
+    consoleOutput.value = data.output
+  } catch (error: any) {
+    console.error('Chyba fetch:', error)
+    consoleOutput.value = `Chyba: ${error.message}`
+  } finally {
+    isExecuting.value = false
+  }
 }
 </script>
 
@@ -52,7 +81,7 @@ const executeCommand = () => {
 
       <button 
         @click="executeCommand" 
-        :disabled="isExecuting || !codeCommand"
+        :disabled="isExecuting || !codeCommand.trim()"
         class="w-full mb-6 bg-gray-800 hover:bg-gray-900 text-white font-bold py-3 px-4 rounded-lg transition duration-200 disabled:bg-gray-400"
       >
         {{ isExecuting ? 'Vykonávam na serveri...' : 'Vykonať príkazy' }}
@@ -70,7 +99,6 @@ const executeCommand = () => {
 </template>
 
 <style>
-/* Drobné úpravy, aby CodeMirror sedel s Tailwindom a vyzeral ako kód */
 .cm-editor {
   outline: none !important;
   font-family: 'Fira Code', 'Courier New', Courier, monospace;
