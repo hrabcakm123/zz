@@ -70,11 +70,16 @@ class AnimationController extends Controller
             sleep((int) $delaySeconds);
         }
 
-        return response()->json([
+        $response = response()->json([
             'type'       => 'inverted_pendulum',
             'parameters' => $params,
             'frames'     => $frames,
         ]);
+
+        $anonymousToken = $this->recordUsage('inverted_pendulum', $request);
+        $response->cookie('anonymous_token', $anonymousToken, 525600);
+
+        return $response;
     }
 
     public function ballbeam(Request $request)
@@ -140,10 +145,37 @@ class AnimationController extends Controller
             sleep((int) $delaySeconds);
         }
 
-        return response()->json([
+        $response = response()->json([
             'type'       => 'ball_beam',
             'parameters' => $params,
             'frames'     => $frames,
         ]);
+
+        $anonymousToken = $this->recordUsage('ball_beam', $request);
+        $response->cookie('anonymous_token', $anonymousToken, 525600);
+
+        return $response;
+    }
+
+    private function recordUsage($animationType, Request $request)
+    {
+        $token = $request->cookie('anonymous_token');
+        if (!$token) {
+            $token = \Illuminate\Support\Str::uuid()->toString();
+        }
+
+        $ip = $request->ip();
+        $geo = \App\Services\IpGeolocator::lookup($ip);
+
+        \App\Models\AnimationUsage::create([
+            'animation_type' => $animationType,
+            'token'          => $token,
+            'ip_address'     => $ip,
+            'city'           => $geo['city'],
+            'country'        => $geo['country'],
+            'created_at'     => now(),
+        ]);
+
+        return $token;
     }
 }
