@@ -2,6 +2,7 @@ FROM php:8.4-cli
 
 RUN apt-get update && apt-get install -y \
     octave \
+    octave-control \
     libsqlite3-dev \
     unzip \
     git \
