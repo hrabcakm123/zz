@@ -14,4 +14,17 @@ services:
       - redis
 
   redis:
-    image: redis:alpine    
+    image: redis:alpine   
+  frontend:
+    image: node:22-alpine        # používame oficiálny Node.js obraz
+    working_dir: /app
+    volumes:
+      - ./frontend:/app          # pripojenie zdrojákov Vue
+      - /app/node_modules        # aby sa node_modules nezdieľali nesprávne
+    ports:
+      - "5173:5173"              # port, na ktorom beží Vite (môže byť aj 3000)
+    environment:
+      - VITE_API_BASE_URL=http://backend:8000   # aby Vue poznalo URL backendu (názov služby)
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - backend 
