@@ -1,0 +1,545 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "CAS API – Octave Calculation & Animation Service",
+    "version": "1.0.0",
+    "description": "REST API pre systém počítačovej algebry (CAS) založený na GNU Octave. Umožňuje vykonávať matematické výpočty, simulovať dynamické systémy (inverzné kyvadlo, gulička na tyči) a získavať štatistiky o používaní animácií. Všetky endpointy vyžadujú autentifikáciu Bearer tokenom (API kľúčom)."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000/api",
+      "description": "Lokálny vývojový server (Docker)"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API Token",
+        "description": "Zadajte API token definovaný v konfiguračnom súbore .env (API_TOKEN)."
+      }
+    },
+    "schemas": {
+      "usageDetail": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "token": {
+            "type": "string",
+            "description": "Anonymizovaný identifikátor používateľa"
+          },
+          "city": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "CAS",
+      "description": "Priame vykonávanie príkazov v GNU Octave s perzistenciou premenných"
+    },
+    {
+      "name": "Logy",
+      "description": "Exportovanie histórie všetkých vykonaných príkazov"
+    },
+    {
+      "name": "Animácie",
+      "description": "Simulácia dynamických systémov – inverzné kyvadlo a gulička na tyči"
+    },
+    {
+      "name": "Štatistiky",
+      "description": "Štatistické údaje o používaní animácií s anonymizovanými údajmi"
+    },
+    {
+      "name": "Dokumentácia",
+      "description": "Export API dokumentácie do PDF formátu"
+    }
+  ],
+  "paths": {
+    "/cas/command": {
+      "post": {
+        "tags": ["CAS"],
+        "summary": "Vykonanie príkazu v GNU Octave",
+        "description": "Odošle ľubovoľný príkaz (alebo viacero príkazov oddelených bodkočiarkou) do GNU Octave a vráti textový výstup. Vytvára a udržiava anonymnú session (cookie octave_session), takže premenné vytvorené v jednom volaní sú dostupné v ďalšom volaní z rovnakého prehliadača / klienta. Výpočet je umelo spomalený podľa konfiguračného parametra DELAY_COEFFICIENT.",
+        "operationId": "executeOctaveCommand",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["command"],
+                "properties": {
+                  "command": {
+                    "type": "string",
+                    "description": "Príkaz(y) v jazyku GNU Octave. Viacero príkazov oddeľte bodkočiarkou (napr. 'x = -10:0.1:10; y = sin(x);').",
+                    "example": "a=1+1"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Príkaz bol úspešne vykonaný. V poli 'output' sa nachádza textový výstup Octave (štandardný výstup). Ak príkaz nevypíše nič (napr. končí bodkočiarkou), 'output' môže byť prázdny reťazec.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "output": {
+                      "type": "string",
+                      "description": "Textový výstup z GNU Octave (stdout).",
+                      "example": "ans = 2"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Chýbajúci príkaz v tele požiadavky.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "No command provided."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Neplatný alebo chýbajúci API token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Unauthorized – invalid or missing token"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Chyba pri vykonávaní príkazu v Octave (napr. syntaktická chyba).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Octave execution failed"
+                    },
+                    "details": {
+                      "type": "string",
+                      "description": "Chybový výstup z Octave (stderr).",
+                      "example": "error: 'undefined' undefined near line 1, column 1"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/logs/export": {
+      "get": {
+        "tags": ["Logy"],
+        "summary": "Export všetkých logov do CSV",
+        "description": "Vráti súbor CSV obsahujúci kompletnú históriu všetkých príkazov odoslaných cez /cas/command. Každý riadok obsahuje časovú pečiatku, odoslaný príkaz, status (success/error) a prípadnú chybovú správu.",
+        "operationId": "exportLogsCsv",
+        "responses": {
+          "200": {
+            "description": "CSV súbor na stiahnutie. Názov súboru obsahuje aktuálny dátum a čas (napr. cas_logs_2026-05-07_153045.csv).",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Neplatný alebo chýbajúci API token."
+          }
+        }
+      }
+    },
+    "/animation/pendulum": {
+      "post": {
+        "tags": ["Animácie"],
+        "summary": "Simulácia inverzného kyvadla na vozíku",
+        "description": "Vykoná numerickú simuláciu inverzného kyvadla s LQR regulátorom podľa CTMS modelu. Systém reaguje na dva po sebe idúce skoky referencie (poloha vozíka). Vráti časové priebehy polohy vozíka, uhla kyvadla a súradnice ťažiska kyvadla pre animáciu. Výpočet je umelo spomalený podľa parametra SIMULATION_DELAY_SECONDS z .env.",
+        "operationId": "simulateInvertedPendulum",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "M": {
+                    "type": "number",
+                    "description": "Hmotnosť vozíka [kg]",
+                    "default": 0.5,
+                    "example": 0.5
+                  },
+                  "m": {
+                    "type": "number",
+                    "description": "Hmotnosť kyvadla [kg]",
+                    "default": 0.2,
+                    "example": 0.2
+                  },
+                  "b": {
+                    "type": "number",
+                    "description": "Koeficient viskózneho tlmenia vozíka [N·s/m]",
+                    "default": 0.1,
+                    "example": 0.1
+                  },
+                  "I": {
+                    "type": "number",
+                    "description": "Moment zotrvačnosti kyvadla voči ťažisku [kg·m²]",
+                    "default": 0.006,
+                    "example": 0.006
+                  },
+                  "g": {
+                    "type": "number",
+                    "description": "Gravitačné zrýchlenie [m/s²]",
+                    "default": 9.8,
+                    "example": 9.8
+                  },
+                  "l": {
+                    "type": "number",
+                    "description": "Dĺžka kyvadla (vzdialenosť od osi po ťažisko) [m]",
+                    "default": 0.3,
+                    "example": 0.3
+                  },
+                  "initialAngle": {
+                    "type": "number",
+                    "description": "Počiatočný uhol kyvadla od vertikály [rad]",
+                    "default": 0.3,
+                    "example": 0.3
+                  },
+                  "initialPosition": {
+                    "type": "number",
+                    "description": "Počiatočná poloha vozíka [m]",
+                    "default": 0,
+                    "example": 0
+                  },
+                  "reference1": {
+                    "type": "number",
+                    "description": "Prvá referenčná poloha vozíka (prvý skok) [m]",
+                    "default": 0.2,
+                    "example": 0.2
+                  },
+                  "reference2": {
+                    "type": "number",
+                    "description": "Druhá referenčná poloha vozíka (druhý skok) [m]",
+                    "default": 0.5,
+                    "example": 0.5
+                  },
+                  "duration": {
+                    "type": "number",
+                    "description": "Dĺžka trvania jedného skoku [s]",
+                    "default": 10,
+                    "example": 10
+                  },
+                  "dt": {
+                    "type": "number",
+                    "description": "Časový krok simulácie [s]",
+                    "default": 0.05,
+                    "example": 0.05
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Simulácia prebehla úspešne. Pole 'frames' obsahuje časový priebeh všetkých stavových veličín. Každá snímka obsahuje: time (čas), x (poloha vozíka), theta (uhol kyvadla), pendulum_x a pendulum_y (súradnice konca kyvadla pre vykreslenie).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "example": "inverted_pendulum"
+                    },
+                    "parameters": {
+                      "type": "object",
+                      "description": "Použité parametre simulácie (iba na informatívne účely)."
+                    },
+                    "frames": {
+                      "type": "array",
+                      "description": "Pole snímok simulácie. Každá snímka je objekt s kľúčmi time, x, theta, pendulum_x, pendulum_y.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "time": { "type": "number", "description": "Čas [s]" },
+                          "x": { "type": "number", "description": "Poloha vozíka [m]" },
+                          "theta": { "type": "number", "description": "Uhol kyvadla [rad]" },
+                          "pendulum_x": { "type": "number", "description": "X-ová súradnica konca kyvadla [m]" },
+                          "pendulum_y": { "type": "number", "description": "Y-ová súradnica konca kyvadla [m]" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Neplatný alebo chýbajúci API token."
+          },
+          "500": {
+            "description": "Chyba pri simulácii (napr. neplatné parametre, zlyhanie Octave).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "example": "Octave simulation failed"
+                    },
+                    "details": {
+                      "type": "string",
+                      "example": "error: ..."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/animation/ballbeam": {
+      "post": {
+        "tags": ["Animácie"],
+        "summary": "Simulácia guličky na tyči (Ball & Beam)",
+        "description": "Numerická simulácia systému gulička na tyči s regulátorom umiestňujúcim póly (pole placement) podľa CTMS modelu. Systém reaguje na dva po sebe idúce skoky referenčnej polohy guličky. Vráti časové priebehy polohy guličky, uhla tyče a súradníc pre animáciu. Výpočet je umelo spomalený podľa SIMULATION_DELAY_SECONDS.",
+        "operationId": "simulateBallBeam",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "m": {
+                    "type": "number",
+                    "description": "Hmotnosť guličky [kg]",
+                    "default": 0.111,
+                    "example": 0.111
+                  },
+                  "R": {
+                    "type": "number",
+                    "description": "Polomer guličky [m]",
+                    "default": 0.015,
+                    "example": 0.015
+                  },
+                  "g": {
+                    "type": "number",
+                    "description": "Gravitačné zrýchlenie [m/s²]",
+                    "default": 9.8,
+                    "example": 9.8
+                  },
+                  "J": {
+                    "type": "number",
+                    "description": "Moment zotrvačnosti guličky [kg·m²]",
+                    "default": 9.99e-6,
+                    "example": 9.99e-6
+                  },
+                  "L": {
+                    "type": "number",
+                    "description": "Dĺžka tyče [m] (len pre vizualizáciu)",
+                    "default": 1.0,
+                    "example": 1.0
+                  },
+                  "initialR": {
+                    "type": "number",
+                    "description": "Počiatočná poloha guličky na tyči [m]",
+                    "default": 0,
+                    "example": 0.2
+                  },
+                  "initialRdot": {
+                    "type": "number",
+                    "description": "Počiatočná rýchlosť guličky [m/s]",
+                    "default": 0,
+                    "example": 0
+                  },
+                  "initialAlpha": {
+                    "type": "number",
+                    "description": "Počiatočný uhol tyče [rad]",
+                    "default": 0,
+                    "example": 0
+                  },
+                  "initialAlphadot": {
+                    "type": "number",
+                    "description": "Počiatočná uhlová rýchlosť tyče [rad/s]",
+                    "default": 0,
+                    "example": 0
+                  },
+                  "reference1": {
+                    "type": "number",
+                    "description": "Prvá referenčná poloha guličky [m]",
+                    "default": 0.25,
+                    "example": 0.25
+                  },
+                  "reference2": {
+                    "type": "number",
+                    "description": "Druhá referenčná poloha guličky [m]",
+                    "default": 0.5,
+                    "example": 0.5
+                  },
+                  "duration": {
+                    "type": "number",
+                    "description": "Dĺžka trvania jedného skoku [s]",
+                    "default": 5,
+                    "example": 5
+                  },
+                  "dt": {
+                    "type": "number",
+                    "description": "Časový krok simulácie [s]",
+                    "default": 0.01,
+                    "example": 0.01
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Simulácia prebehla úspešne. Pole 'frames' obsahuje: time (čas), r (poloha guličky), alpha (uhol tyče), ball_x a ball_y (súradnice guličky pre animáciu).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string", "example": "ball_beam" },
+                    "parameters": { "type": "object" },
+                    "frames": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "time": { "type": "number" },
+                          "r": { "type": "number", "description": "Poloha guličky [m]" },
+                          "alpha": { "type": "number", "description": "Uhol tyče [rad]" },
+                          "ball_x": { "type": "number", "description": "X-ová súradnica guličky [m]" },
+                          "ball_y": { "type": "number", "description": "Y-ová súradnica guličky [m]" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Neplatný alebo chýbajúci API token." },
+          "500": { "description": "Chyba pri simulácii." }
+        }
+      }
+    },
+    "/stats/animations": {
+      "get": {
+        "tags": ["Štatistiky"],
+        "summary": "Štatistika používania animácií",
+        "description": "Vráti celkový počet unikátnych spustení každej animácie. Opakované spustenie tým istým používateľom (identifikovaným cez anonymný token v cookie) sa do celkového počtu započíta až po uplynutí intervalu definovaného v .env (STATS_INTERVAL_MINUTES, predvolene 10 minút). V detailoch sú uvedené všetky spustenia s časom, anonymizovaným tokenom, mestom a štátom (získaným geolokáciou IP adresy).",
+        "operationId": "getAnimationStats",
+        "responses": {
+          "200": {
+            "description": "Objekt so štatistikami pre 'inverted_pendulum' a 'ball_beam'. Každá položka obsahuje 'total_unique_uses' (počet unikátnych spustení) a 'details' (pole všetkých spustení).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "inverted_pendulum": {
+                      "type": "object",
+                      "properties": {
+                        "total_unique_uses": { "type": "integer" },
+                        "details": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/usageDetail"
+                          }
+                        }
+                      }
+                    },
+                    "ball_beam": {
+                      "type": "object",
+                      "properties": {
+                        "total_unique_uses": { "type": "integer" },
+                        "details": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/usageDetail"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Neplatný alebo chýbajúci API token." }
+        }
+      }
+    },
+    "/documentation/pdf": {
+      "get": {
+        "tags": ["Dokumentácia"],
+        "summary": "Export API dokumentácie do PDF",
+        "description": "Vygeneruje a vráti PDF súbor s kompletnou API dokumentáciou. Dokument obsahuje hlavičku s názvom, pätičku s číslovaním strán (napr. 'Strana 5/8') a prehľad všetkých endpointov vrátane parametrov a odpovedí.",
+        "operationId": "exportDocumentationPdf",
+        "responses": {
+          "200": {
+            "description": "PDF súbor na stiahnutie.",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": { "description": "Neplatný alebo chýbajúci API token." }
+        }
+      }
+    }
+  }
+}
