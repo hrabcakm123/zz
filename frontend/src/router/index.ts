@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import CommandView from '../views/CommandView.vue'
 import PendulumView from '../views/PendulumView.vue'
 import BallBeamView from '@/views/BallBeamView.vue'
+import StatsView from '@/views/StatsView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -22,6 +23,11 @@ const router = createRouter({
       path: '/gulicka',
       name: 'ballbeam',
       component: BallBeamView
+    },
+        {
+      path: '/stats',
+      name: 'stats',
+      component: StatsView
     }
   ],
 })

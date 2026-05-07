@@ -50,5 +50,20 @@ export default {
         casCommands: 'CAS Príkazy',
         pendulum: 'Kyvadlo',
         ballBeam: 'Gulička',
+        stats: 'Štatistiky',
+        documentation: 'API Dokumentácia',
+        exportPdf: 'Stiahnuť PDF',
+        exportCsv: 'Export CSV',
     },
+    stats: {
+        title: 'Štatistiky animácií',
+        pendulum: 'Prevrátené kyvadlo',
+        ballBeam: 'Gulička na tyči',
+        totalUnique: 'Celkový počet unikátnych spustení',
+        timestamp: 'Čas',
+        token: 'Token',
+        city: 'Mesto',
+        country: 'Krajina',
+        noData: 'Žiadne spustenia.',
+    }
 };
