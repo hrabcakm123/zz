@@ -1,17 +1,50 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { Line } from 'vue-chartjs'
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+} from 'chart.js'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend)
 
-const targetPosition = ref(0.25)
+const initialR = ref(0.0)
+const initialAlpha = ref(0.0)
+const reference1 = ref(0.25)
+const reference2 = ref(0.5)
+const duration = ref(5)
+const dt = ref(0.01)
+const L = ref(1.0)
+
+const isLoading = ref(false)
 const isAnimating = ref(false)
 
-// ---- CANVAS LOGIKA PRE ANIMÁCIU ----
+interface Frame {
+  time: string
+  r: string
+  alpha: string
+  ball_x: string
+  ball_y: string
+}
+
+const frames = ref<Frame[]>([])
+
 const canvasRef = ref<HTMLCanvasElement | null>(null)
-const currentBallPos = ref(0) // Aktuálna pozícia guličky od stredu v metroch
-const currentAngle = ref(0) // Aktuálny uhol naklonenia tyče
+const currentBallPos = ref(0)
+const currentAngle = ref(0)
+
+const fixedParams = {
+  m: 0.111,
+  R: 0.015,
+  J: 9.99e-6,
+  g: 9.8
+}
 
 const drawBallBeam = (ballPos: number, angle: number) => {
   const canvas = canvasRef.value
@@ -21,115 +54,202 @@ const drawBallBeam = (ballPos: number, angle: number) => {
 
   const width = canvas.width
   const height = canvas.height
-
-  // Vyčistenie plátna
   ctx.clearRect(0, 0, width, height)
 
-  // Konštanty pre kreslenie
-  const scale = 400 // Priblíženie (pixely na meter) - gulička sa hýbe v menších číslach
-  const beamLength = 400
+  const scale = 400
+  const beamLength = L.value * scale
   const ballRadius = 15
 
-  // Uloženie základného stavu plátna
   ctx.save()
-
-  // Posunieme bod [0,0] presne do stredu plátna
   ctx.translate(width / 2, height / 2)
-  
-  // Otočíme celé plátno o požadovaný uhol (v radiánoch)
   ctx.rotate(angle)
 
-  // 1. Vykreslenie tyče (kreslíme ju vodorovne, keďže plátno je už otočené)
   ctx.beginPath()
   ctx.moveTo(-beamLength / 2, 0)
   ctx.lineTo(beamLength / 2, 0)
-  ctx.strokeStyle = '#6b7280' // Tailwind gray-500
+  ctx.strokeStyle = '#6b7280'
   ctx.lineWidth = 6
   ctx.lineCap = 'round'
   ctx.stroke()
 
-  // 2. Vykreslenie guličky na tyči
   const pixelX = ballPos * scale
   ctx.beginPath()
-  // Gulička leží na tyči, takže jej Y pozícia je mínus jej polomer
   ctx.arc(pixelX, -ballRadius, ballRadius, 0, 2 * Math.PI)
-  ctx.fillStyle = '#10b981' // Tailwind emerald-500
+  ctx.fillStyle = '#10b981'
   ctx.fill()
   ctx.lineWidth = 2
-  ctx.strokeStyle = '#047857' // Tmavší okraj guličky
+  ctx.strokeStyle = '#047857'
   ctx.stroke()
 
-  // 3. Stredový kĺb (podpera)
   ctx.beginPath()
   ctx.moveTo(-10, 0)
   ctx.lineTo(10, 0)
   ctx.lineTo(0, 20)
-  ctx.fillStyle = '#374151' // Tmavosivá
+  ctx.fillStyle = '#374151'
   ctx.fill()
 
-  // Vrátenie plátna do pôvodného neotočeného stavu
   ctx.restore()
 }
 
 onMounted(() => drawBallBeam(currentBallPos.value, currentAngle.value))
+watch([currentBallPos, currentAngle], () => drawBallBeam(currentBallPos.value, currentAngle.value))
 
-watch([currentBallPos, currentAngle], () => {
-  drawBallBeam(currentBallPos.value, currentAngle.value)
-})
-
-// ---- GRAF A SIMULÁCIA ----
 const chartData = ref({
-  labels: ['0', '1', '2', '3', '4', '5'],
+  labels: [] as number[],
   datasets: [
-    { label: 'Pozícia guličky (m)', backgroundColor: '#10b981', borderColor: '#10b981', data: [0, 0.1, 0.18, 0.23, 0.25, 0.25] },
-    { label: 'Uhol tyče (rad)', backgroundColor: '#8b5cf6', borderColor: '#8b5cf6', data: [0, 0.05, 0.02, -0.01, 0, 0] }
+    {
+      label: 'Pozícia guličky (m)',
+      borderColor: '#10b981',
+      backgroundColor: '#10b981',
+      data: [] as number[]
+    },
+    {
+      label: 'Uhol tyče (rad)',
+      borderColor: '#8b5cf6',
+      backgroundColor: '#8b5cf6',
+      data: [] as number[]
+    }
   ]
 })
-const chartOptions = ref({ responsive: true, maintainAspectRatio: false })
 
-const startSimulation = () => {
-  isAnimating.value = true
-  
-  const times = [0, 1, 2, 3, 4, 5]
-  const positions = (chartData.value.datasets[0]?.data || []) as number[]
-  const angles = (chartData.value.datasets[1]?.data || []) as number[]
-  
-  let startTime: number | null = null
-  
-  const animate = (timestamp: number) => {
-    if (!startTime) startTime = timestamp
-    const elapsedSeconds = (timestamp - startTime) / 1000 
-    
-    const maxTime = times[times.length - 1] || 5
-    
-    if (elapsedSeconds >= maxTime) {
-      currentBallPos.value = positions[positions.length - 1] || 0
-      currentAngle.value = angles[angles.length - 1] || 0
+const chartOptions = ref({
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: false,
+  scales: {
+    x: { type: 'linear', min: 0, max: 10 },
+    y: { min: -0.5, max: 1.0 }
+  }
+})
+
+const runAnimation = (allFrames: Frame[]) => {
+  const allTimes = allFrames.map(f => parseFloat(f.time))
+  const allPositions = allFrames.map(f => parseFloat(f.r))
+  const allAngles = allFrames.map(f => parseFloat(f.alpha))
+
+  const timeMin = allTimes[0]
+  const timeMax = allTimes[allTimes.length - 1]
+  const posMin = Math.min(...allPositions)
+  const posMax = Math.max(...allPositions)
+  const angMin = Math.min(...allAngles)
+  const angMax = Math.max(...allAngles)
+  const yMin = Math.min(posMin, angMin) - 0.1
+  const yMax = Math.max(posMax, angMax) + 0.1
+
+  chartOptions.value = {
+    ...chartOptions.value,
+    scales: {
+      x: { type: 'linear', min: timeMin, max: timeMax },
+      y: { min: yMin, max: yMax }
+    }
+  }
+
+  chartData.value = {
+    labels: [],
+    datasets: [
+      { label: 'Pozícia guličky (m)', borderColor: '#10b981', backgroundColor: '#10b981', data: [] },
+      { label: 'Uhol tyče (rad)', borderColor: '#8b5cf6', backgroundColor: '#8b5cf6', data: [] }
+    ]
+  }
+
+  const startTime = performance.now()
+  const totalDuration = parseFloat(allFrames[allFrames.length - 1].time)
+
+  const animate = (now: number) => {
+    const elapsed = (now - startTime) / 1000
+
+    if (elapsed >= totalDuration) {
+      chartData.value = {
+        labels: allTimes,
+        datasets: [
+          { label: 'Pozícia guličky (m)', borderColor: '#10b981', backgroundColor: '#10b981', data: allPositions },
+          { label: 'Uhol tyče (rad)', borderColor: '#8b5cf6', backgroundColor: '#8b5cf6', data: allAngles }
+        ]
+      }
+      currentBallPos.value = allPositions[allPositions.length - 1]
+      currentAngle.value = allAngles[allAngles.length - 1]
       isAnimating.value = false
       return
     }
-    
-    let i = 0
-    while (i < times.length - 1 && (times[i + 1] || 0) < elapsedSeconds) {
-      i++
-    }
-    
-    const t0 = times[i] || 0
-    const t1 = times[i + 1] || 1
-    const progress = (elapsedSeconds - t0) / (t1 - t0) 
-    
-    const pos0 = positions[i] || 0
-    const pos1 = positions[i + 1] || 0
-    const ang0 = angles[i] || 0
-    const ang1 = angles[i + 1] || 0
 
-    currentBallPos.value = pos0 + (pos1 - pos0) * progress
-    currentAngle.value = ang0 + (ang1 - ang0) * progress
-    
+    let index = 0
+    while (index < allFrames.length - 1 && parseFloat(allFrames[index + 1].time) < elapsed) index++
+
+    const f0 = allFrames[index]
+    const f1 = allFrames[Math.min(index + 1, allFrames.length - 1)]
+    const t0 = parseFloat(f0.time)
+    const t1 = parseFloat(f1.time)
+    const progress = (elapsed - t0) / (t1 - t0 || 1)
+
+    currentBallPos.value = parseFloat(f0.r) + (parseFloat(f1.r) - parseFloat(f0.r)) * progress
+    currentAngle.value = parseFloat(f0.alpha) + (parseFloat(f1.alpha) - parseFloat(f0.alpha)) * progress
+
+    const visibleCount = index + 1
+    chartData.value = {
+      labels: allTimes.slice(0, visibleCount),
+      datasets: [
+        {
+          label: 'Pozícia guličky (m)',
+          borderColor: '#10b981',
+          backgroundColor: '#10b981',
+          data: allPositions.slice(0, visibleCount)
+        },
+        {
+          label: 'Uhol tyče (rad)',
+          borderColor: '#8b5cf6',
+          backgroundColor: '#8b5cf6',
+          data: allAngles.slice(0, visibleCount)
+        }
+      ]
+    }
+
     requestAnimationFrame(animate)
   }
-  
+
   requestAnimationFrame(animate)
+}
+
+const startSimulation = async () => {
+  isLoading.value = true
+  isAnimating.value = false
+
+  try {
+    const response = await fetch('http://localhost:8000/api/animation/ballbeam', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer tajnykluc123'
+      },
+      body: JSON.stringify({
+        m: fixedParams.m,
+        R: fixedParams.R,
+        J: fixedParams.J,
+        L: L.value,
+        g: fixedParams.g,
+        r0: initialR.value,
+        rdot0: 0,
+        alpha0: initialAlpha.value,
+        alphadot0: 0,
+        ref1: reference1.value,
+        ref2: reference2.value,
+        T: duration.value,
+        dt: dt.value
+      })
+    })
+
+    if (!response.ok) throw new Error(`Chyba API: ${response.status}`)
+
+    const data = await response.json()
+    frames.value = data.frames
+    isAnimating.value = true
+    runAnimation(frames.value)
+
+  } catch (error) {
+    console.error(error)
+    alert('Nepodarilo sa spustiť simuláciu.')
+  } finally {
+    isLoading.value = false
+  }
 }
 </script>
 
@@ -138,20 +258,56 @@ const startSimulation = () => {
     <h2 class="text-3xl font-extrabold text-gray-800 mb-6">Gulička na tyči</h2>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      
+
       <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-fit">
         <h3 class="text-lg font-semibold text-gray-700 mb-4">Parametre simulácie</h3>
-        <div class="mb-5">
-          <label class="block text-sm font-medium text-gray-600 mb-2">Cieľová pozícia guličky (r)</label>
-          <input v-model="targetPosition" type="number" step="0.05" class="w-full p-2.5 border border-gray-300 rounded-lg outline-none">
+
+        <div class="grid grid-cols-2 gap-3 mb-5">
+          <div>
+            <label class="block text-sm font-medium text-gray-600">Init poloha (m)</label>
+            <input v-model.number="initialR" type="number" step="0.01" class="w-full p-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-600">Init uhol tyče (rad)</label>
+            <input v-model.number="initialAlpha" type="number" step="0.01" class="w-full p-2 border rounded-lg">
+          </div>
         </div>
-        <button @click="startSimulation" :disabled="isAnimating" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg disabled:bg-gray-400">
-          {{ isAnimating ? 'Animujem...' : 'Spustiť simuláciu' }}
+
+        <div class="grid grid-cols-2 gap-3 mb-5">
+          <div>
+            <label class="block text-sm font-medium text-gray-600">Cieľová poloha 1 (m)</label>
+            <input v-model.number="reference1" type="number" step="0.01" class="w-full p-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-600">Cieľová poloha 2 (m)</label>
+            <input v-model.number="reference2" type="number" step="0.01" class="w-full p-2 border rounded-lg">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 mb-5">
+          <div>
+            <label class="block text-sm font-medium text-gray-600">Dĺžka fázy (s)</label>
+            <input v-model.number="duration" type="number" step="1" class="w-full p-2 border rounded-lg">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-600">dt (s)</label>
+            <input v-model.number="dt" type="number" step="0.001" class="w-full p-2 border rounded-lg">
+          </div>
+        </div>
+
+        <div class="mb-5">
+          <label class="block text-sm font-medium text-gray-600">Dĺžka tyče (m) – vizualizácia</label>
+          <input v-model.number="L" type="number" step="0.1" class="w-full p-2 border rounded-lg">
+        </div>
+
+        <button @click="startSimulation" :disabled="isAnimating || isLoading"
+          class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed">
+          {{ isLoading ? 'Počítam...' : isAnimating ? 'Animácia beží...' : 'Spustiť simuláciu' }}
         </button>
       </div>
 
       <div class="lg:col-span-2 flex flex-col gap-6">
-        
+
         <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
           <h3 class="text-lg font-semibold text-gray-700 mb-4">Vizuálna animácia</h3>
           <div class="w-full flex justify-center bg-gray-50 rounded-lg border border-gray-100 overflow-hidden">
