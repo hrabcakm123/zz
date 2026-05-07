@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -11,8 +11,11 @@ import {
   Tooltip,
   Legend
 } from 'chart.js'
+import { useI18n } from 'vue-i18n'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend)
+
+const { t } = useI18n()
 
 const initAngle = ref(0.0)
 const initPosition = ref(0.0)
@@ -94,13 +97,27 @@ const drawPendulum = (cartX: number, angle: number) => {
 onMounted(() => drawPendulum(currentCartX.value, currentAngle.value))
 watch([currentCartX, currentAngle], () => drawPendulum(currentCartX.value, currentAngle.value))
 
-const chartData = ref({
-  labels: [] as number[],
+const chartLabels = ref<number[]>([])
+const chartPositions = ref<number[]>([])
+const chartAngles = ref<number[]>([])
+
+const chartData = computed(() => ({
+  labels: chartLabels.value,
   datasets: [
-    { label: 'Pozícia (m)', borderColor: '#3b82f6', backgroundColor: '#3b82f6', data: [] as number[] },
-    { label: 'Uhol (rad)', borderColor: '#f97316', backgroundColor: '#f97316', data: [] as number[] }
+    {
+      label: t('pendulum.positionLabel'),
+      borderColor: '#3b82f6',
+      backgroundColor: '#3b82f6',
+      data: chartPositions.value
+    },
+    {
+      label: t('pendulum.angleLabel'),
+      borderColor: '#f97316',
+      backgroundColor: '#f97316',
+      data: chartAngles.value
+    }
   ]
-})
+}))
 
 const chartOptions = ref({
   responsive: true,
@@ -134,13 +151,9 @@ const runAnimation = (allFrames: Frame[]) => {
     }
   }
 
-  chartData.value = {
-    labels: [],
-    datasets: [
-      { label: 'Pozícia (m)', borderColor: '#3b82f6', backgroundColor: '#3b82f6', data: [] },
-      { label: 'Uhol (rad)', borderColor: '#f97316', backgroundColor: '#f97316', data: [] }
-    ]
-  }
+  chartLabels.value = []
+  chartPositions.value = []
+  chartAngles.value = []
 
   const startTime = performance.now()
   const totalDuration = parseFloat(allFrames[allFrames.length - 1].time)
@@ -149,13 +162,9 @@ const runAnimation = (allFrames: Frame[]) => {
     const elapsed = (now - startTime) / 1000
 
     if (elapsed >= totalDuration) {
-      chartData.value = {
-        labels: allTimes,
-        datasets: [
-          { label: 'Pozícia (m)', borderColor: '#3b82f6', backgroundColor: '#3b82f6', data: allPositions },
-          { label: 'Uhol (rad)', borderColor: '#f97316', backgroundColor: '#f97316', data: allAngles }
-        ]
-      }
+      chartLabels.value = allTimes
+      chartPositions.value = allPositions
+      chartAngles.value = allAngles
       currentCartX.value = allPositions[allPositions.length - 1]
       currentAngle.value = allAngles[allAngles.length - 1]
       isAnimating.value = false
@@ -175,23 +184,9 @@ const runAnimation = (allFrames: Frame[]) => {
     currentAngle.value = parseFloat(f0.theta) + (parseFloat(f1.theta) - parseFloat(f0.theta)) * progress
 
     const visibleCount = index + 1
-    chartData.value = {
-      labels: allTimes.slice(0, visibleCount),
-      datasets: [
-        {
-          label: 'Pozícia (m)',
-          borderColor: '#3b82f6',
-          backgroundColor: '#3b82f6',
-          data: allPositions.slice(0, visibleCount)
-        },
-        {
-          label: 'Uhol (rad)',
-          borderColor: '#f97316',
-          backgroundColor: '#f97316',
-          data: allAngles.slice(0, visibleCount)
-        }
-      ]
-    }
+    chartLabels.value = allTimes.slice(0, visibleCount)
+    chartPositions.value = allPositions.slice(0, visibleCount)
+    chartAngles.value = allAngles.slice(0, visibleCount)
 
     requestAnimationFrame(animate)
   }
@@ -204,11 +199,13 @@ const startSimulation = async () => {
   isAnimating.value = false
 
   try {
+    const token = import.meta.env.VITE_API_TOKEN || 'tajnykluc123'
+
     const response = await fetch('http://localhost:8000/api/animation/pendulum', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer tajnykluc123'
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({
         M: fixedParams.M,
@@ -235,7 +232,7 @@ const startSimulation = async () => {
 
   } catch (error) {
     console.error(error)
-    alert('Nepodarilo sa spustiť simuláciu.')
+    alert(t('pendulum.error'))
   } finally {
     isLoading.value = false
   }
@@ -244,63 +241,61 @@ const startSimulation = async () => {
 
 <template>
   <div class="max-w-6xl mx-auto">
-    <h2 class="text-3xl font-extrabold text-gray-800 mb-6">Prevrátené kyvadlo</h2>
+    <h2 class="text-3xl font-extrabold text-gray-800 mb-6">{{ t('pendulum.title') }}</h2>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <!-- PARAMETRE -->
       <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-fit">
-        <h3 class="text-lg font-semibold text-gray-700 mb-4">Parametre simulácie</h3>
+        <h3 class="text-lg font-semibold text-gray-700 mb-4">{{ t('pendulum.params') }}</h3>
 
         <div class="grid grid-cols-2 gap-3 mb-5">
           <div>
-            <label class="block text-sm font-medium text-gray-600">Init uhol (rad)</label>
+            <label class="block text-sm font-medium text-gray-600">{{ t('pendulum.initAngle') }}</label>
             <input v-model.number="initAngle" type="number" step="0.01" class="w-full p-2 border rounded-lg">
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-600">Init pozícia (m)</label>
+            <label class="block text-sm font-medium text-gray-600">{{ t('pendulum.initPosition') }}</label>
             <input v-model.number="initPosition" type="number" step="0.01" class="w-full p-2 border rounded-lg">
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-3 mb-5">
           <div>
-            <label class="block text-sm font-medium text-gray-600">Cieľová poloha 1 (m)</label>
+            <label class="block text-sm font-medium text-gray-600">{{ t('pendulum.ref1') }}</label>
             <input v-model.number="ref1" type="number" step="0.01" class="w-full p-2 border rounded-lg">
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-600">Cieľová poloha 2 (m)</label>
+            <label class="block text-sm font-medium text-gray-600">{{ t('pendulum.ref2') }}</label>
             <input v-model.number="ref2" type="number" step="0.01" class="w-full p-2 border rounded-lg">
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-3 mb-6">
           <div>
-            <label class="block text-sm font-medium text-gray-600">Dĺžka fázy (s)</label>
+            <label class="block text-sm font-medium text-gray-600">{{ t('pendulum.duration') }}</label>
             <input v-model.number="T" type="number" step="1" class="w-full p-2 border rounded-lg">
           </div>
           <div>
-            <label class="block text-sm font-medium text-gray-600">dt (s)</label>
+            <label class="block text-sm font-medium text-gray-600">{{ t('pendulum.dt') }}</label>
             <input v-model.number="dt" type="number" step="0.01" class="w-full p-2 border rounded-lg">
           </div>
         </div>
 
         <button @click="startSimulation" :disabled="isAnimating || isLoading"
           class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed">
-          {{ isLoading ? 'Počítam...' : isAnimating ? 'Animácia beží...' : 'Spustiť simuláciu' }}
+          {{ isLoading ? t('pendulum.computing') : isAnimating ? t('pendulum.animating') : t('pendulum.start') }}
         </button>
       </div>
 
-      <!-- ANIMÁCIA + GRAF -->
       <div class="lg:col-span-2 flex flex-col gap-6">
         <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <h3 class="text-lg font-semibold text-gray-700 mb-4">Vizuálna animácia</h3>
+          <h3 class="text-lg font-semibold text-gray-700 mb-4">{{ t('pendulum.animation') }}</h3>
           <div class="w-full flex justify-center bg-gray-50 rounded-lg border border-gray-100 overflow-hidden">
             <canvas ref="canvasRef" width="600" height="250" class="max-w-full"></canvas>
           </div>
         </div>
 
         <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <h3 class="text-lg font-semibold text-gray-700 mb-4">Priebeh veličín</h3>
+          <h3 class="text-lg font-semibold text-gray-700 mb-4">{{ t('pendulum.chart') }}</h3>
           <div class="h-64 relative w-full">
             <Line :data="chartData" :options="chartOptions" />
           </div>
