@@ -76,4 +76,74 @@ class AnimationController extends Controller
             'frames'     => $frames,
         ]);
     }
+
+    public function ballbeam(Request $request)
+    {
+        $params = [
+            'm'           => $request->input('m', 0.111),
+            'R'           => $request->input('R', 0.015),
+            'J'           => $request->input('J', 9.99e-6),
+            'L'           => $request->input('L', 1.0),
+            'g'           => $request->input('g', 9.8),          
+            'r0'          => $request->input('initialR', 0.0),
+            'rdot0'       => $request->input('initialRdot', 0.0),
+            'alpha0'      => $request->input('initialAlpha', 0.0),
+            'alphadot0'   => $request->input('initialAlphadot', 0.0),
+            'ref1'        => $request->input('reference1', 0.25),
+            'ref2'        => $request->input('reference2', 0.5),
+            'T'           => $request->input('duration', 5),
+            'dt'          => $request->input('dt', 0.01),
+        ];
+
+        $template = file_get_contents(base_path('octave-scripts/ballbeam_template.m'));
+        $script = $template;
+        foreach ($params as $key => $value) {
+            $script = str_replace('{{' . $key . '}}', $value, $script);
+        }
+
+        $tempFile = tempnam(sys_get_temp_dir(), 'ballbeam_');
+        file_put_contents($tempFile, $script);
+
+        $process = new Process(['octave-cli', $tempFile]);
+        $process->setTimeout(30);
+        try {
+            $process->mustRun();
+            $csvOutput = $process->getOutput();
+        } catch (ProcessFailedException $e) {
+            if (file_exists($tempFile)) unlink($tempFile);
+            return response()->json([
+                'error'   => 'Octave simulation failed',
+                'details' => $process->getErrorOutput(),
+            ], 500);
+        }
+        unlink($tempFile);
+
+        $lines = array_filter(explode("\n", trim($csvOutput)));
+        if (count($lines) < 2) {
+            return response()->json(['error' => 'No simulation data produced.'], 500);
+        }
+        $header = str_getcsv(array_shift($lines));
+        $frames = [];
+        foreach ($lines as $line) {
+            $data = str_getcsv($line);
+            if (count($data) === count($header)) {
+                $frames[] = array_combine($header, $data);
+            }
+        }
+
+        if (empty($frames)) {
+            return response()->json(['error' => 'No valid frames parsed.'], 500);
+        }
+
+        $delaySeconds = (float) env('SIMULATION_DELAY_SECONDS', 1);
+        if ($delaySeconds > 0) {
+            sleep((int) $delaySeconds);
+        }
+
+        return response()->json([
+            'type'       => 'ball_beam',
+            'parameters' => $params,
+            'frames'     => $frames,
+        ]);
+    }
 }
