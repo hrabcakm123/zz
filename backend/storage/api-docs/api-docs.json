@@ -3,7 +3,7 @@
   "info": {
     "title": "CAS API – Octave Calculation & Animation Service",
     "version": "1.0.0",
-    "description": "REST API pre systém počítačovej algebry (CAS) založený na GNU Octave. Umožňuje vykonávať matematické výpočty, simulovať dynamické systémy (inverzné kyvadlo, gulička na tyči) a získavať štatistiky o používaní animácií. Všetky endpointy vyžadujú autentifikáciu Bearer tokenom (API kľúčom)."
+    "description": "REST API pre systém počítačovej algebry (CAS) založený na GNU Octave. Umožňuje vykonávať matematické výpočty, simulovať dynamické systémy (inverzné kyvadlo, gulička na tyči) a získavať štatistiky o používaní animácií. Všetky endpointy vyžadujú autentifikáciu Bearer tokenom (API kľúčom).\n\n### Hlavné funkcie\n- **Matematický engine** – priame odosielanie príkazov do GNU Octave s perzistentnými premennými (cez Redis).\n- **Animácie dynamických systémov** – numerická simulácia inverzného kyvadla a guličky na tyči s regulátormi.\n- **Logovanie a export** – všetky príkazy sa zaznamenávajú a je možné ich exportovať do CSV.\n- **Štatistiky** – anonymné sledovanie používania animácií s geolokáciou a cooldownom.\n- **Dokumentácia** – interaktívne Swagger UI + dynamicky generované PDF."
   },
   "servers": [
     {
@@ -30,13 +30,15 @@
           },
           "token": {
             "type": "string",
-            "description": "Anonymizovaný identifikátor používateľa"
+            "description": "Anonymizovaný identifikátor používateľa (prvých 8 znakov UUID + ...)"
           },
           "city": {
-            "type": "string"
+            "type": "string",
+            "description": "Mesto získané geolokáciou IP adresy"
           },
           "country": {
-            "type": "string"
+            "type": "string",
+            "description": "Krajina získané geolokáciou IP adresy"
           }
         }
       }
@@ -74,7 +76,7 @@
       "post": {
         "tags": ["CAS"],
         "summary": "Vykonanie príkazu v GNU Octave",
-        "description": "Odošle ľubovoľný príkaz (alebo viacero príkazov oddelených bodkočiarkou) do GNU Octave a vráti textový výstup. Vytvára a udržiava anonymnú session (cookie octave_session), takže premenné vytvorené v jednom volaní sú dostupné v ďalšom volaní z rovnakého prehliadača / klienta. Výpočet je umelo spomalený podľa konfiguračného parametra DELAY_COEFFICIENT.",
+        "description": "Odošle ľubovoľný príkaz (alebo viacero príkazov oddelených bodkočiarkou) do GNU Octave a vráti textový výstup.\n\n**Perzistencia:** Premenné sa uchovávajú medzi volaniami v rámci jednej session (cookie `octave_session`). Využíva sa Redis s TTL – premenné zaniknú po 2 hodinách nečinnosti.\n\n**Spomalenie:** Výpočet je umelo spomalený podľa parametra `DELAY_COEFFICIENT` z `.env`. Chybné príkazy neprepíšu predchádzajúci workspace.\n\n**Príklad:**\n```\nPOST /api/cas/command\n{ \"command\": \"a=1+1\" }\n// vráti output: \"a = 2\"\n\nPOST /api/cas/command\n{ \"command\": \"a+2\" }\n// vráti output: \"ans = 4\"\n```",
         "operationId": "executeOctaveCommand",
         "requestBody": {
           "required": true,
@@ -86,7 +88,7 @@
                 "properties": {
                   "command": {
                     "type": "string",
-                    "description": "Príkaz(y) v jazyku GNU Octave. Viacero príkazov oddeľte bodkočiarkou (napr. 'x = -10:0.1:10; y = sin(x);').",
+                    "description": "Príkaz(y) v jazyku GNU Octave. Viacero príkazov oddeľte bodkočiarkou (napr. `x = -10:0.1:10; y = sin(x);`). Bodkočiarka potláča výpis – ak chcete vidieť výsledok, nepoužívajte ju na konci, alebo použite `disp(...)`.",
                     "example": "a=1+1"
                   }
                 }
@@ -96,7 +98,7 @@
         },
         "responses": {
           "200": {
-            "description": "Príkaz bol úspešne vykonaný. V poli 'output' sa nachádza textový výstup Octave (štandardný výstup). Ak príkaz nevypíše nič (napr. končí bodkočiarkou), 'output' môže byť prázdny reťazec.",
+            "description": "Príkaz bol úspešne vykonaný. V poli `output` sa nachádza textový výstup Octave (stdout). Ak príkaz nevypíše nič (všetky výrazy sú ukončené bodkočiarkou), `output` môže byť prázdny reťazec.",
             "content": {
               "application/json": {
                 "schema": {
@@ -172,11 +174,11 @@
       "get": {
         "tags": ["Logy"],
         "summary": "Export všetkých logov do CSV",
-        "description": "Vráti súbor CSV obsahujúci kompletnú históriu všetkých príkazov odoslaných cez /cas/command. Každý riadok obsahuje časovú pečiatku, odoslaný príkaz, status (success/error) a prípadnú chybovú správu.",
+        "description": "Vráti súbor CSV so všetkými vykonanými príkazmi (časová pečiatka, príkaz, status, chybové hlásenie). Súbor sa dá stiahnuť a otvoriť v tabuľkovom procesore.",
         "operationId": "exportLogsCsv",
         "responses": {
           "200": {
-            "description": "CSV súbor na stiahnutie. Názov súboru obsahuje aktuálny dátum a čas (napr. cas_logs_2026-05-07_153045.csv).",
+            "description": "CSV súbor (MIME type text/csv) s hlavičkou `timestamp,command,status,error`.",
             "content": {
               "text/csv": {
                 "schema": {
@@ -196,7 +198,7 @@
       "post": {
         "tags": ["Animácie"],
         "summary": "Simulácia inverzného kyvadla na vozíku",
-        "description": "Vykoná numerickú simuláciu inverzného kyvadla s LQR regulátorom podľa CTMS modelu. Systém reaguje na dva po sebe idúce skoky referencie (poloha vozíka). Vráti časové priebehy polohy vozíka, uhla kyvadla a súradnice ťažiska kyvadla pre animáciu. Výpočet je umelo spomalený podľa parametra SIMULATION_DELAY_SECONDS z .env.",
+        "description": "Spustí numerickú simuláciu inverzného kyvadla pomocou **nelineárneho modelu a LQR regulátora** (rovnice podľa CTMS). Systém reaguje na dva po sebe idúce skoky referenčnej polohy vozíka.\n\n**Čo to je za endpoint:** Vráti pole snímok (`frames`) s časovým priebehom polohy vozíka, uhla kyvadla a súradníc pre vykreslenie – údaje sú priamo použiteľné na 2D animáciu a synchronný graf.\n\n**Vstupné parametre:** Všetky parametre sú voliteľné (s predvolenými hodnotami). Môžete meniť hmotnosť vozíka, kyvadla, dĺžku, tlmenie, počiatočný uhol a cieľové polohy.\n\n**Oneskorenie:** Výpočet je na backende umelo spomalený podľa `SIMULATION_DELAY_SECONDS`, aby sa demonštrovalo serverové spracovanie.\n\n**Príklad použitia:**\n```json\nPOST /api/animation/pendulum\n{\n  \"initialAngle\": 0.3,\n  \"reference1\": 0.2,\n  \"reference2\": 0.5\n}\n```",
         "operationId": "simulateInvertedPendulum",
         "requestBody": {
           "required": false,
@@ -237,13 +239,13 @@
                   },
                   "l": {
                     "type": "number",
-                    "description": "Dĺžka kyvadla (vzdialenosť od osi po ťažisko) [m]",
+                    "description": "Dĺžka kyvadla (vzdialenosť od osi otáčania po ťažisko) [m]",
                     "default": 0.3,
                     "example": 0.3
                   },
                   "initialAngle": {
                     "type": "number",
-                    "description": "Počiatočný uhol kyvadla od vertikály [rad]",
+                    "description": "Počiatočný uhol kyvadla od vertikály [rad]. Kladný smer je doprava.",
                     "default": 0.3,
                     "example": 0.3
                   },
@@ -273,7 +275,7 @@
                   },
                   "dt": {
                     "type": "number",
-                    "description": "Časový krok simulácie [s]",
+                    "description": "Časový krok simulácie [s]. Menšie hodnoty zvyšujú presnosť a počet snímok.",
                     "default": 0.05,
                     "example": 0.05
                   }
@@ -284,7 +286,7 @@
         },
         "responses": {
           "200": {
-            "description": "Simulácia prebehla úspešne. Pole 'frames' obsahuje časový priebeh všetkých stavových veličín. Každá snímka obsahuje: time (čas), x (poloha vozíka), theta (uhol kyvadla), pendulum_x a pendulum_y (súradnice konca kyvadla pre vykreslenie).",
+            "description": "Simulácia prebehla úspešne. Pole `frames` obsahuje všetky snímky v poradí. Každá snímka má: `time` (čas), `x` (poloha vozíka), `theta` (uhol kyvadla), `pendulum_x` a `pendulum_y` (súradnice konca kyvadla pre vykreslenie v rovine).",
             "content": {
               "application/json": {
                 "schema": {
@@ -296,19 +298,19 @@
                     },
                     "parameters": {
                       "type": "object",
-                      "description": "Použité parametre simulácie (iba na informatívne účely)."
+                      "description": "Použité parametre simulácie (kópia vstupov)."
                     },
                     "frames": {
                       "type": "array",
-                      "description": "Pole snímok simulácie. Každá snímka je objekt s kľúčmi time, x, theta, pendulum_x, pendulum_y.",
+                      "description": "Pole snímok simulácie.",
                       "items": {
                         "type": "object",
                         "properties": {
-                          "time": { "type": "number", "description": "Čas [s]" },
+                          "time": { "type": "number", "description": "Simulovaný čas [s]" },
                           "x": { "type": "number", "description": "Poloha vozíka [m]" },
                           "theta": { "type": "number", "description": "Uhol kyvadla [rad]" },
-                          "pendulum_x": { "type": "number", "description": "X-ová súradnica konca kyvadla [m]" },
-                          "pendulum_y": { "type": "number", "description": "Y-ová súradnica konca kyvadla [m]" }
+                          "pendulum_x": { "type": "number", "description": "X‑ová súradnica konca kyvadla [m]" },
+                          "pendulum_y": { "type": "number", "description": "Y‑ová súradnica konca kyvadla [m]" }
                         }
                       }
                     }
@@ -321,20 +323,14 @@
             "description": "Neplatný alebo chýbajúci API token."
           },
           "500": {
-            "description": "Chyba pri simulácii (napr. neplatné parametre, zlyhanie Octave).",
+            "description": "Zlyhanie simulácie – neplatné parametre alebo chyba v Octave.",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "error": {
-                      "type": "string",
-                      "example": "Octave simulation failed"
-                    },
-                    "details": {
-                      "type": "string",
-                      "example": "error: ..."
-                    }
+                    "error": { "type": "string", "example": "Octave simulation failed" },
+                    "details": { "type": "string", "example": "error: ..." }
                   }
                 }
               }
@@ -347,7 +343,7 @@
       "post": {
         "tags": ["Animácie"],
         "summary": "Simulácia guličky na tyči (Ball & Beam)",
-        "description": "Numerická simulácia systému gulička na tyči s regulátorom umiestňujúcim póly (pole placement) podľa CTMS modelu. Systém reaguje na dva po sebe idúce skoky referenčnej polohy guličky. Vráti časové priebehy polohy guličky, uhla tyče a súradníc pre animáciu. Výpočet je umelo spomalený podľa SIMULATION_DELAY_SECONDS.",
+        "description": "Spustí numerickú simuláciu guličky na tyči pomocou **lineárneho modelu a regulátora umiestňujúceho póly (pole placement)** (CTMS). Gulička sa presúva na tyči, ktorá mení uhol, aby dosiahla požadovanú polohu. Simulácia obsahuje dva po sebe idúce skoky referenčnej polohy guličky.\n\n**Čo to je za endpoint:** Vráti pole snímok (`frames`) s časovým priebehom polohy guličky na tyči, uhla tyče a súradníc pre 2D animáciu.\n\n**Vstupné parametre:** Všetky parametre sú voliteľné. Môžete meniť hmotnosť a polomer guličky, dĺžku tyče, počiatočné podmienky a referencie.\n\n**Oneskorenie:** Rovnako ako pri kyvadle je odpoveď oneskorená o `SIMULATION_DELAY_SECONDS`.\n\n**Príklad:**\n```json\nPOST /api/animation/ballbeam\n{\n  \"reference1\": 0.25,\n  \"reference2\": 0.5\n}\n```",
         "operationId": "simulateBallBeam",
         "requestBody": {
           "required": false,
@@ -364,7 +360,7 @@
                   },
                   "R": {
                     "type": "number",
-                    "description": "Polomer guličky [m]",
+                    "description": "Polomer guličky [m] – ovplyvňuje moment zotrvačnosti",
                     "default": 0.015,
                     "example": 0.015
                   },
@@ -376,19 +372,19 @@
                   },
                   "J": {
                     "type": "number",
-                    "description": "Moment zotrvačnosti guličky [kg·m²]",
+                    "description": "Moment zotrvačnosti guličky [kg·m²]. Ak nezadáte, použije sa hodnota pre plnú guľu: 9.99e-6",
                     "default": 9.99e-6,
                     "example": 9.99e-6
                   },
                   "L": {
                     "type": "number",
-                    "description": "Dĺžka tyče [m] (len pre vizualizáciu)",
+                    "description": "Dĺžka tyče [m] – ovplyvňuje iba rozsah zobrazenia, nie dynamiku",
                     "default": 1.0,
                     "example": 1.0
                   },
                   "initialR": {
                     "type": "number",
-                    "description": "Počiatočná poloha guličky na tyči [m]",
+                    "description": "Počiatočná poloha guličky na tyči [m] (vzdialenosť od stredu)",
                     "default": 0,
                     "example": 0.2
                   },
@@ -400,7 +396,7 @@
                   },
                   "initialAlpha": {
                     "type": "number",
-                    "description": "Počiatočný uhol tyče [rad]",
+                    "description": "Počiatočný uhol tyče [rad] (vodorovná poloha = 0)",
                     "default": 0,
                     "example": 0
                   },
@@ -441,7 +437,7 @@
         },
         "responses": {
           "200": {
-            "description": "Simulácia prebehla úspešne. Pole 'frames' obsahuje: time (čas), r (poloha guličky), alpha (uhol tyče), ball_x a ball_y (súradnice guličky pre animáciu).",
+            "description": "Simulácia prebehla úspešne. Pole `frames` obsahuje snímky s vlastnosťami: `time` (čas), `r` (poloha guličky na tyči), `alpha` (uhol tyče), `ball_x` a `ball_y` (absolútne súradnice guličky pre vykreslenie).",
             "content": {
               "application/json": {
                 "schema": {
@@ -454,11 +450,11 @@
                       "items": {
                         "type": "object",
                         "properties": {
-                          "time": { "type": "number" },
-                          "r": { "type": "number", "description": "Poloha guličky [m]" },
+                          "time": { "type": "number", "description": "Simulovaný čas [s]" },
+                          "r": { "type": "number", "description": "Poloha guličky na tyči [m]" },
                           "alpha": { "type": "number", "description": "Uhol tyče [rad]" },
-                          "ball_x": { "type": "number", "description": "X-ová súradnica guličky [m]" },
-                          "ball_y": { "type": "number", "description": "Y-ová súradnica guličky [m]" }
+                          "ball_x": { "type": "number", "description": "X‑ová súradnica guličky [m]" },
+                          "ball_y": { "type": "number", "description": "Y‑ová súradnica guličky [m]" }
                         }
                       }
                     }
@@ -468,7 +464,7 @@
             }
           },
           "401": { "description": "Neplatný alebo chýbajúci API token." },
-          "500": { "description": "Chyba pri simulácii." }
+          "500": { "description": "Chyba pri simulácii – neplatné parametre alebo zlyhanie Octave." }
         }
       }
     },
@@ -476,11 +472,11 @@
       "get": {
         "tags": ["Štatistiky"],
         "summary": "Štatistika používania animácií",
-        "description": "Vráti celkový počet unikátnych spustení každej animácie. Opakované spustenie tým istým používateľom (identifikovaným cez anonymný token v cookie) sa do celkového počtu započíta až po uplynutí intervalu definovaného v .env (STATS_INTERVAL_MINUTES, predvolene 10 minút). V detailoch sú uvedené všetky spustenia s časom, anonymizovaným tokenom, mestom a štátom (získaným geolokáciou IP adresy).",
+        "description": "Vráti počet unikátnych spustení oboch animácií (inverzné kyvadlo, gulička na tyči). Unikátne sú tie spustenia, medzi ktorými uplynulo viac ako `STATS_INTERVAL_MINUTES` minút (predvolene 10) pre rovnakého anonymného používateľa (identifikovaného tokenom v cookie `anonymous_token`). Detailné záznamy obsahujú čas, anonymizovaný token, mesto a krajinu (získané z IP).\n\n**Účel:** Sledovať popularitu animácií bez porušenia súkromia.",
         "operationId": "getAnimationStats",
         "responses": {
           "200": {
-            "description": "Objekt so štatistikami pre 'inverted_pendulum' a 'ball_beam'. Každá položka obsahuje 'total_unique_uses' (počet unikátnych spustení) a 'details' (pole všetkých spustení).",
+            "description": "Objekt so štatistikami pre `inverted_pendulum` a `ball_beam`. Každý obsahuje `total_unique_uses` (počet unikátnych spustení) a `details` (pole všetkých záznamov).",
             "content": {
               "application/json": {
                 "schema": {
@@ -492,9 +488,7 @@
                         "total_unique_uses": { "type": "integer" },
                         "details": {
                           "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/usageDetail"
-                          }
+                          "items": { "$ref": "#/components/schemas/usageDetail" }
                         }
                       }
                     },
@@ -504,9 +498,7 @@
                         "total_unique_uses": { "type": "integer" },
                         "details": {
                           "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/usageDetail"
-                          }
+                          "items": { "$ref": "#/components/schemas/usageDetail" }
                         }
                       }
                     }
@@ -522,12 +514,12 @@
     "/documentation/pdf": {
       "get": {
         "tags": ["Dokumentácia"],
-        "summary": "Export API dokumentácie do PDF",
-        "description": "Vygeneruje a vráti PDF súbor s kompletnou API dokumentáciou. Dokument obsahuje hlavičku s názvom, pätičku s číslovaním strán (napr. 'Strana 5/8') a prehľad všetkých endpointov vrátane parametrov a odpovedí.",
+        "summary": "Export aktuálnej API dokumentácie do PDF",
+        "description": "Dynamicky vygeneruje PDF súbor z OpenAPI špecifikácie (`api-docs.json`). PDF obsahuje hlavičku s názvom a verziou, pätičku s číslovaním strán a úplný zoznam endpointov s parametrami a odpoveďami.",
         "operationId": "exportDocumentationPdf",
         "responses": {
           "200": {
-            "description": "PDF súbor na stiahnutie.",
+            "description": "PDF súbor (application/pdf) pripravený na stiahnutie.",
             "content": {
               "application/pdf": {
                 "schema": {
