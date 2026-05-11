@@ -201,7 +201,7 @@ const startSimulation = async () => {
   try {
     const token = import.meta.env.VITE_API_TOKEN || 'tajnykluc123'
 
-    const response = await fetch('http://localhost:8000/api/animation/pendulum', {
+    const response = await fetch('/zz/api/animation/pendulum', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

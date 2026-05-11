@@ -77,7 +77,7 @@ class AnimationController extends Controller
         ]);
 
         $anonymousToken = $this->recordUsage('inverted_pendulum', $request);
-        $response->cookie('anonymous_token', $anonymousToken, 525600);
+        $response->cookie('anonymous_token', $anonymousToken, 525600, '/', null, true, false);
 
         return $response;
     }
@@ -152,7 +152,7 @@ class AnimationController extends Controller
         ]);
 
         $anonymousToken = $this->recordUsage('ball_beam', $request);
-        $response->cookie('anonymous_token', $anonymousToken, 525600);
+        $response->cookie('anonymous_token', $anonymousToken, 525600, '/', null, true, false);
 
         return $response;
     }
@@ -167,14 +167,23 @@ class AnimationController extends Controller
         $ip = $request->ip();
         $geo = \App\Services\IpGeolocator::lookup($ip);
 
-        \App\Models\AnimationUsage::create([
-            'animation_type' => $animationType,
-            'token'          => $token,
-            'ip_address'     => $ip,
-            'city'           => $geo['city'],
-            'country'        => $geo['country'],
-            'created_at'     => now(),
-        ]);
+        $intervalMinutes = (int) env('STATS_INTERVAL_MINUTES', 10);
+
+        $recent = \App\Models\AnimationUsage::where('animation_type', $animationType)
+            ->where('token', $token)
+            ->where('created_at', '>', now()->subMinutes($intervalMinutes))
+            ->exists();
+
+        if (!$recent) {
+            \App\Models\AnimationUsage::create([
+                'animation_type' => $animationType,
+                'token'          => $token,
+                'ip_address'     => $ip,
+                'city'           => $geo['city'],
+                'country'        => $geo['country'],
+                'created_at'     => now(),
+            ]);
+        }
 
         return $token;
     }

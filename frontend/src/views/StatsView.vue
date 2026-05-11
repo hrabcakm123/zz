@@ -27,7 +27,7 @@ const fetchStats = async () => {
   error.value = null
   try {
     const token = import.meta.env.VITE_API_TOKEN || 'tajnykluc123'
-    const response = await fetch('http://localhost:8000/api/stats/animations', {
+    const response = await fetch('/zz/api/stats/animations', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`

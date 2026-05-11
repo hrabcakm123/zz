@@ -15,7 +15,7 @@ const switchLocale = (lang: string) => {
 const exportLogs = async () => {
   try {
     const token = import.meta.env.VITE_API_TOKEN || 'tajnykluc123'
-    const response = await fetch('http://localhost:8000/api/logs/export', {
+    const response = await fetch('/zz/api/logs/export', {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}` }
     })
@@ -40,7 +40,7 @@ const exportLogs = async () => {
 const downloadPdf = async () => {
   try {
     const token = import.meta.env.VITE_API_TOKEN || 'tajnykluc123'
-    const response = await fetch('http://localhost:8000/api/documentation/pdf', {
+    const response = await fetch('/zz/api/documentation/pdf', {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${token}` }
     })
@@ -108,7 +108,7 @@ const downloadPdf = async () => {
           <!-- Desktop actions + language -->
           <div class="hidden md:flex items-center space-x-2">
             <a
-              href="http://localhost:8000/api/documentation"
+              href="/zz/api/documentation"
               target="_blank"
               class="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-medium transition"
             >
@@ -184,7 +184,7 @@ const downloadPdf = async () => {
 
           <div class="border-t border-white/20 pt-3 flex flex-wrap gap-2">
             <a
-              href="http://localhost:8000/api/documentation"
+              href="/zz/api/documentation"
               target="_blank"
               class="px-3 py-2 bg-white/10 rounded-lg text-xs font-medium"
             >
